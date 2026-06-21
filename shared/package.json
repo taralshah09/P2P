@@ -1,0 +1,11 @@
+{
+  "name": "shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    "./constants": "./src/constants.js",
+    "./signaling-messages": "./src/signaling-messages.js"
+  }
+}

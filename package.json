@@ -1,0 +1,23 @@
+{
+  "name": "p2p-share",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "dev:server": "npm run dev -w server",
+    "dev:client": "npm run dev -w client"
+  },
+  "workspaces": [
+    "client",
+    "server",
+    "shared"
+  ],
+  "devDependencies": {
+    "eslint": "^10.5.0",
+    "prettier": "^3.8.4",
+    "vitest": "^4.1.9"
+  }
+}

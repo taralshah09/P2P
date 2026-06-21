@@ -1,0 +1,13 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'server dev'",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "shared": "*"
+  }
+}
