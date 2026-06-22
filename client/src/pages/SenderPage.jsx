@@ -2,14 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSignaling } from '../hooks/useSignaling.js';
 import { usePeerConnection } from '../hooks/usePeerConnection.js';
-import { useFileTransfer } from '../hooks/useFileTransfer.js';
+import { useFileQueue } from '../hooks/useFileQueue.js';
 import { useTextTransfer } from '../hooks/useTextTransfer.js';
 import { CONNECTION_STATES } from '../lib/connectionState.js';
 import { textByteLength } from '../lib/textTransfer.js';
 import { MAX_TEXT_BYTES } from 'shared/src/constants.js';
-import FilePicker from '../components/FilePicker.jsx';
+import FileQueue from '../components/FileQueue.jsx';
 import QRDisplay from '../components/QRDisplay.jsx';
-import TransferProgress from '../components/TransferProgress.jsx';
 
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return '0 B';
@@ -22,7 +21,7 @@ function formatBytes(bytes) {
 export default function SenderPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState('file'); // file | text
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]); // selected File[] for the queue
   const [text, setText] = useState('');
   const [uiStep, setUiStep] = useState('idle');
   const [uiError, setUiError] = useState(null);
@@ -30,12 +29,12 @@ export default function SenderPage() {
 
   const { sessionCode, iceConfig, getClient, createSession } = useSignaling();
   const { connState, connError, init, getManager } = usePeerConnection();
-  const { progress, startTransfer } = useFileTransfer();
+  const { files: queueFiles, startQueue } = useFileQueue();
   const { delivered, startTextTransfer } = useTextTransfer();
 
   const textBytes = textByteLength(text);
   const textTooLarge = textBytes > MAX_TEXT_BYTES;
-  const canSend = mode === 'file' ? !!file : text.trim().length > 0 && !textTooLarge;
+  const canSend = mode === 'file' ? files.length > 0 : text.trim().length > 0 && !textTooLarge;
 
   // Sync connState to uiStep
   useEffect(() => {
@@ -95,7 +94,7 @@ export default function SenderPage() {
       if (mode === 'text') {
         await startTextTransfer(text, manager);
       } else {
-        await startTransfer(file, manager);
+        await startQueue(files, manager);
       }
     } catch (err) {
       setUiStep('error');
@@ -106,6 +105,14 @@ export default function SenderPage() {
   function handleReject() {
     getManager()?.close();
     setUiStep('waiting');
+  }
+
+  // File queue editing helpers
+  function addFiles(newFiles) {
+    setFiles((prev) => [...prev, ...newFiles]);
+  }
+  function removeFile(index) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   const joinUrl = sessionCode
@@ -122,7 +129,7 @@ export default function SenderPage() {
           onClick={() => setMode('file')}
           style={{ flex: 1 }}
         >
-          Send a file
+          Send files
         </button>
         <button
           className={`btn ${mode === 'text' ? 'btn-primary' : 'btn-secondary'}`}
@@ -137,7 +144,14 @@ export default function SenderPage() {
 
   function renderPayloadInput() {
     if (mode === 'file') {
-      return <FilePicker file={file} onFileSelect={setFile} disabled={false} />;
+      return (
+        <FileQueue
+          items={files}
+          editable
+          onAdd={addFiles}
+          onRemove={removeFile}
+        />
+      );
     }
     return (
       <div>
@@ -230,19 +244,6 @@ export default function SenderPage() {
           {renderModeToggle()}
           {renderPayloadInput()}
 
-          {mode === 'file' && file && (
-            <div style={{
-              background: '#f0f9ff',
-              border: '1px solid #bae6fd',
-              borderRadius: '8px',
-              padding: '1rem',
-              margin: '1rem 0',
-            }}>
-              <div style={{ fontWeight: 600 }}>{file.name}</div>
-              <div style={{ color: '#666', fontSize: '0.875rem' }}>{formatBytes(file.size)}</div>
-            </div>
-          )}
-
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
             <button
               className="btn btn-success"
@@ -251,8 +252,8 @@ export default function SenderPage() {
               style={{ flexGrow: 1 }}
             >
               {canSend
-                ? `Accept and Send ${mode === 'text' ? 'text' : 'file'}`
-                : `Accept and Send (${mode === 'text' ? 'enter text first' : 'select a file first'})`}
+                ? `Accept and Send ${mode === 'text' ? 'text' : (files.length > 1 ? `${files.length} files` : 'file')}`
+                : `Accept and Send (${mode === 'text' ? 'enter text first' : 'select files first'})`}
             </button>
             <button
               className="btn btn-secondary"
@@ -276,13 +277,11 @@ export default function SenderPage() {
             <div>
               <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
                 <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>Sending...</div>
-                <h3 style={{ margin: 0 }}>Sending {file?.name}</h3>
+                <h3 style={{ margin: 0 }}>
+                  Sending {queueFiles.length} file{queueFiles.length === 1 ? '' : 's'}
+                </h3>
               </div>
-              <TransferProgress
-                sentBytes={progress.sentBytes}
-                totalBytes={progress.totalBytes || file?.size}
-                label="Transfer progress"
-              />
+              <FileQueue items={queueFiles} byteField="sentBytes" />
               <div className="alert alert-warning" style={{ marginTop: '1rem' }}>
                 Keep this tab open until the transfer finishes.
               </div>
@@ -298,14 +297,14 @@ export default function SenderPage() {
           <p style={{ color: '#666' }}>
             {mode === 'text'
               ? (delivered ? 'The receiver has your text.' : 'Your text was sent.')
-              : `${file?.name} was sent successfully.`}
+              : `${queueFiles.length} file${queueFiles.length === 1 ? '' : 's'} sent successfully.`}
           </p>
           <button
             className="btn btn-primary"
             onClick={() => navigate('/')}
             style={{ marginTop: '0.5rem' }}
           >
-            {mode === 'text' ? 'Send Something Else' : 'Send Another File'}
+            {mode === 'text' ? 'Send Something Else' : 'Send More Files'}
           </button>
         </div>
       )}
@@ -317,6 +316,11 @@ export default function SenderPage() {
           <div className="alert alert-error" style={{ textAlign: 'left', marginBottom: '1rem' }}>
             {uiError}
           </div>
+          {mode === 'file' && queueFiles.length > 0 && (
+            <div style={{ textAlign: 'left', marginBottom: '1rem' }}>
+              <FileQueue items={queueFiles} byteField="sentBytes" />
+            </div>
+          )}
           <button className="btn btn-primary" onClick={() => navigate('/')}>
             Try Again
           </button>

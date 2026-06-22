@@ -8,7 +8,15 @@ export const CONTROL_MESSAGES = {
   // (never binary chunk frames). TEXT_MESSAGE carries the whole snippet;
   // TEXT_RECEIVED is the receiver's delivery ack back to the sender.
   TEXT_MESSAGE: 'TEXT_MESSAGE',
-  TEXT_RECEIVED: 'TEXT_RECEIVED'
+  TEXT_RECEIVED: 'TEXT_RECEIVED',
+  // Phase 7 — multi-file queue. After the receiver has verified and saved
+  // file N it sends TRANSFER_CONFIRMED { fileIndex } back to the sender; the
+  // sender waits for that ack before announcing the next file with
+  // NEXT_FILE_READY and sending file N+1's FILE_METADATA. This gates the
+  // sequence so the receiver finishes writing/downloading one file (which
+  // may include its own save-file prompt) before the next one starts.
+  TRANSFER_CONFIRMED: 'TRANSFER_CONFIRMED',
+  NEXT_FILE_READY: 'NEXT_FILE_READY'
 };
 
 /**

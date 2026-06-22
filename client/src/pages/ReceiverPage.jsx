@@ -7,7 +7,7 @@ import { CONNECTION_STATES } from '../lib/connectionState.js';
 import { supportsFileSystemAccessAPI } from '../lib/capabilities.js';
 import { copyToClipboard } from '../lib/clipboard.js';
 import AccessCodeEntry from '../components/AccessCodeEntry.jsx';
-import TransferProgress from '../components/TransferProgress.jsx';
+import FileQueue from '../components/FileQueue.jsx';
 const QRScanner = lazy(() => import('../components/QRScanner.jsx'));
 
 // Extract the 6-char session code from a scanned value.
@@ -44,6 +44,8 @@ export default function ReceiverPage() {
     receiveError,
     fileInfo,
     receivedText,
+    files,
+    totalFiles,
     init: initReceiver,
   } = useFileReceiver();
 
@@ -197,13 +199,11 @@ export default function ReceiverPage() {
         <div>
           <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
             <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>📥</div>
-            <h3 style={{ margin: 0 }}>Receiving {fileInfo?.name}</h3>
+            <h3 style={{ margin: 0 }}>
+              {totalFiles > 1 ? `Receiving ${totalFiles} files` : `Receiving ${fileInfo?.name ?? ''}`}
+            </h3>
           </div>
-          <TransferProgress
-            sentBytes={progress.receivedBytes}
-            totalBytes={progress.totalBytes}
-            label="Download progress"
-          />
+          <FileQueue items={files} byteField="receivedBytes" />
         </div>
       )}
 
@@ -252,7 +252,16 @@ export default function ReceiverPage() {
         <div className="text-center">
           <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>✅</div>
           <h3 style={{ marginBottom: '0.5rem' }}>Download Complete!</h3>
-          {result?.savedToDisk ? (
+          {totalFiles > 1 ? (
+            <>
+              <p style={{ color: '#6b7280' }}>
+                {files.length} files received{result?.savedToDisk ? ' and saved' : ' and downloaded'}.
+              </p>
+              <div style={{ textAlign: 'left', margin: '1rem 0' }}>
+                <FileQueue items={files} byteField="receivedBytes" />
+              </div>
+            </>
+          ) : result?.savedToDisk ? (
             <p style={{ color: '#6b7280' }}>File saved to your chosen location.</p>
           ) : (
             <p style={{ color: '#6b7280' }}>"{fileInfo?.name}" downloaded successfully.</p>
@@ -262,7 +271,7 @@ export default function ReceiverPage() {
             onClick={() => navigate('/receive')}
             style={{ marginTop: '0.75rem' }}
           >
-            Receive Another File
+            Receive More Files
           </button>
         </div>
       )}

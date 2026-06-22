@@ -10,10 +10,24 @@ export function useFileReceiver() {
   const [receiveError, setReceiveError] = useState(null);
   const [fileInfo, setFileInfo] = useState(null);
   const [receivedText, setReceivedText] = useState(null);
+  // Phase 7 — multi-file queue. `files` is the per-file status model the UI
+  // binds to; `totalFiles` is learned from the first FILE_METADATA. The
+  // receiver doesn't know the file list up front, so entries are filled in as
+  // each file's metadata arrives.
+  const [files, setFiles] = useState([]);
+  const [totalFiles, setTotalFiles] = useState(1);
   const receiverRef = useRef(null);
+  const currentIndexRef = useRef(0);
 
   const init = useCallback((manager) => {
-    const fileReceiver = new FileReceiver((p) => setProgress(p));
+    const fileReceiver = new FileReceiver((p) => {
+      // Progress is reported for whichever file is currently arriving.
+      const idx = currentIndexRef.current;
+      setProgress(p);
+      setFiles((prev) => prev.map((f, i) =>
+        i === idx ? { ...f, receivedBytes: p.receivedBytes, totalBytes: p.totalBytes } : f
+      ));
+    });
     receiverRef.current = fileReceiver;
 
     manager.onDataChannelMessage = async (data) => {
@@ -35,10 +49,33 @@ export function useFileReceiver() {
               }
               return;
             }
+            if (msg.type === CONTROL_MESSAGES.NEXT_FILE_READY) {
+              // Informational — the FILE_METADATA that follows does the real work.
+              return;
+            }
             if (msg.type === CONTROL_MESSAGES.FILE_METADATA) {
+              const idx = msg.fileIndex ?? 0;
+              const total = msg.totalFiles ?? 1;
+              currentIndexRef.current = idx;
+              setTotalFiles(total);
               setFileInfo({ name: msg.name, size: msg.size, mime: msg.mime });
               setReceiveState('receiving');
               setProgress({ receivedBytes: 0, totalBytes: msg.size });
+              // Grow/seed the status list and mark this file as receiving.
+              setFiles((prev) => {
+                const next = prev.slice();
+                while (next.length < total) {
+                  next.push({ name: '', size: 0, status: 'waiting', receivedBytes: 0, totalBytes: 0 });
+                }
+                next[idx] = {
+                  name: msg.name,
+                  size: msg.size,
+                  status: 'receiving',
+                  receivedBytes: 0,
+                  totalBytes: msg.size
+                };
+                return next;
+              });
             }
           } catch (_) {
             // not JSON — let handleMessage deal with it
@@ -48,8 +85,16 @@ export function useFileReceiver() {
         const transferResult = await fileReceiver.handleMessage(data);
 
         if (transferResult?.success) {
-          manager.stateMachine.transition(CONNECTION_STATES.COMPLETE);
-          setReceiveState('complete');
+          const idx = transferResult.fileIndex ?? 0;
+          const total = transferResult.totalFiles ?? 1;
+          const isLast = idx >= total - 1;
+
+          // Mark this file done in the status model.
+          setFiles((prev) => prev.map((f, i) =>
+            i === idx
+              ? { ...f, status: 'done', receivedBytes: f.totalBytes, savedToDisk: transferResult.savedToDisk }
+              : f
+          ));
           setResult(transferResult);
 
           // Auto-trigger download for in-memory blob path
@@ -61,6 +106,24 @@ export function useFileReceiver() {
             a.click();
             document.body.removeChild(a);
           }
+
+          // Ack so the sender can release the next file. Best-effort: even if
+          // the channel is gone, this file is already saved.
+          try {
+            manager.sendData(JSON.stringify({
+              type: CONTROL_MESSAGES.TRANSFER_CONFIRMED,
+              fileIndex: idx
+            }));
+          } catch (_) {
+            // ignore — sender will detect the closed channel instead
+          }
+
+          if (isLast) {
+            // Whole session done — only now is the state machine COMPLETE.
+            manager.stateMachine.transition(CONNECTION_STATES.COMPLETE);
+            setReceiveState('complete');
+          }
+          // Otherwise stay in 'receiving' and wait for the next FILE_METADATA.
         }
       } catch (err) {
         manager.stateMachine.fail(err.message);
@@ -72,13 +135,16 @@ export function useFileReceiver() {
 
   const reset = useCallback(() => {
     receiverRef.current = null;
+    currentIndexRef.current = 0;
     setReceiveState('idle');
     setProgress({ receivedBytes: 0, totalBytes: 0 });
     setResult(null);
     setReceiveError(null);
     setFileInfo(null);
     setReceivedText(null);
+    setFiles([]);
+    setTotalFiles(1);
   }, []);
 
-  return { receiveState, progress, result, receiveError, fileInfo, receivedText, init, reset };
+  return { receiveState, progress, result, receiveError, fileInfo, receivedText, files, totalFiles, init, reset };
 }

@@ -91,13 +91,19 @@ export class FileReceiver {
       throw new Error('Root hash mismatch');
     }
 
+    // fileIndex / totalFiles let the receiver hook sequence a multi-file queue
+    // (Phase 7): ack this file and decide whether the whole session is done.
+    // They default to the single-file values when the sender omits them.
+    const fileIndex = this.metadata.fileIndex ?? 0;
+    const totalFiles = this.metadata.totalFiles ?? 1;
+
     if (this.writableStream) {
       await this.writableStream.close();
-      return { success: true, savedToDisk: true, fileHandle: this.fileHandle };
+      return { success: true, savedToDisk: true, fileHandle: this.fileHandle, name: this.metadata.name, fileIndex, totalFiles };
     } else {
       const blob = new Blob(this.chunksMemory, { type: this.metadata.mime });
       const url = URL.createObjectURL(blob);
-      return { success: true, savedToDisk: false, blobUrl: url, name: this.metadata.name };
+      return { success: true, savedToDisk: false, blobUrl: url, name: this.metadata.name, fileIndex, totalFiles };
     }
   }
 }
